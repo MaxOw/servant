@@ -31,6 +31,9 @@ module Servant.Foreign
   , listFromAPI
   , GenerateList(..)
   , NoTypes
+  , CollectForeign
+  , RenderForeignType(..)
+  , typesFromAPI
   -- re-exports
   , module Servant.API
   ) where

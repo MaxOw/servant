@@ -22,6 +22,9 @@ import           Control.Lens (makeLenses, (%~), (&), (.~), (<>~))
 import qualified Data.Char    as C
 import           Data.Proxy
 import           Data.Text
+import           Data.Map     (Map)
+import qualified Data.Map     as Map
+import           Data.Monoid  ((<>))
 import           GHC.Exts     (Constraint)
 import           GHC.TypeLits
 import           Prelude      hiding (concat)
@@ -347,3 +350,107 @@ instance (GenerateList start, GenerateList rest) => GenerateList (start :<|> res
 listFromAPI :: (HasForeign lang api, GenerateList (Foreign api)) => Proxy lang -> Proxy api -> [Req]
 listFromAPI lang p = generateList (foreignFor lang p defReq)
 
+----------------------------------------------------------------------
+-- Rendering foreign type
+
+type ForeignTypeBody = Text
+class HasForeignType lang a => RenderForeignType lang a where
+    renderTypes :: Proxy lang -> Proxy a -> Map ForeignType ForeignTypeBody
+
+class CollectForeign lang layout where
+    collectTypes :: Proxy lang -> Proxy layout -> Map ForeignType ForeignTypeBody
+
+instance (KnownSymbol sym, RenderForeignType lang a, CollectForeign lang sublayout)
+      => CollectForeign lang (Capture sym a :> sublayout) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a) <>
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance (Elem JSON list, RenderForeignType lang a)
+      => CollectForeign lang (Delete list a) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a)
+
+instance (Elem JSON list, RenderForeignType lang a)
+      => CollectForeign lang (Get list a) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a)
+
+instance (KnownSymbol sym, RenderForeignType lang a, CollectForeign lang sublayout)
+      => CollectForeign lang (Header sym a :> sublayout) where
+
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a) <>
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance (Elem JSON list, RenderForeignType lang a)
+      => CollectForeign lang (Post list a) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a)
+
+instance (Elem JSON list, RenderForeignType lang a)
+      => CollectForeign lang (Put list a) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a)
+
+instance (KnownSymbol sym, RenderForeignType lang a, CollectForeign lang sublayout)
+      => CollectForeign lang (QueryParam sym a :> sublayout) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a) <>
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance (KnownSymbol sym, RenderForeignType lang [a], CollectForeign lang sublayout)
+      => CollectForeign lang (QueryParams sym a :> sublayout) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy [a]) <>
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance (KnownSymbol sym, RenderForeignType lang a, a ~ Bool, CollectForeign lang sublayout)
+      => CollectForeign lang (QueryFlag sym :> sublayout) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a) <>
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance CollectForeign lang Raw where
+  collectTypes _ Proxy = Map.empty
+
+instance (Elem JSON list, RenderForeignType lang a, CollectForeign lang sublayout)
+      => CollectForeign lang (ReqBody list a :> sublayout) where
+  collectTypes lang Proxy =
+    renderTypes lang (Proxy :: Proxy a) <>
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance (KnownSymbol path, CollectForeign lang sublayout)
+      => CollectForeign lang (path :> sublayout) where
+  collectTypes lang Proxy =
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance CollectForeign lang sublayout
+      => CollectForeign lang (RemoteHost :> sublayout) where
+  collectTypes lang Proxy =
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance CollectForeign lang sublayout
+      => CollectForeign lang (IsSecure :> sublayout) where
+  collectTypes lang Proxy =
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance CollectForeign lang sublayout
+      => CollectForeign lang (Vault :> sublayout) where
+  collectTypes lang Proxy =
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance CollectForeign lang sublayout
+      => CollectForeign lang (HttpVersion :> sublayout) where
+  collectTypes lang Proxy =
+    collectTypes lang (Proxy :: Proxy sublayout)
+
+instance (CollectForeign lang start, CollectForeign lang rest)
+      => CollectForeign lang (start :<|> rest) where
+    collectTypes lang Proxy =
+      collectTypes lang (Proxy :: Proxy start) <>
+      collectTypes lang (Proxy :: Proxy rest)
+
+typesFromAPI :: CollectForeign lang api
+    => Proxy lang -> Proxy api -> [(ForeignType, ForeignTypeBody)]
+typesFromAPI lang api = Map.toList (collectTypes lang api)
